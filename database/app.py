@@ -1,20 +1,36 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
 from werkzeug.exceptions import BadRequest
 
 from dotenv import load_dotenv
 load_dotenv()
 
 
-from accounts import (
-    create_account,
-    verify_login,
-    list_accounts,
-    update_account_by_login,
-    delete_account_by_login,
-    request_code,
-    lookup_username_by_email,
-    reset_password_by_email,
-)
+try:
+    from .accounts import (
+        create_account,
+        verify_login,
+        list_accounts,
+        update_account_by_login,
+        delete_account_by_login,
+        request_code,
+        lookup_username_by_email,
+        reset_password_by_email,
+        delete_account,
+    )
+    from .donations import list_pending_orders
+except ImportError:
+    from accounts import (
+        create_account,
+        verify_login,
+        list_accounts,
+        update_account_by_login,
+        delete_account_by_login,
+        request_code,
+        lookup_username_by_email,
+        reset_password_by_email,
+        delete_account,
+    )
+    from donations import list_pending_orders
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-change-me"  # needed for flash messages
@@ -24,6 +40,12 @@ app.secret_key = "dev-secret-change-me"  # needed for flash messages
 def cleaned(form, name: str):
     v = (form.get(name) or "").strip()
     return v if v else None
+
+
+def json_error(message: str, status_code: int):
+    response = jsonify({"error": message})
+    response.status_code = status_code
+    return response
 
 
 # ---------- Pages ----------
@@ -36,6 +58,80 @@ def home():
 def list_accounts_page():
     accounts = list_accounts()
     return render_template("list_accounts.html", accounts=accounts)
+
+
+@app.get("/api/accounts")
+def list_accounts_api():
+    return jsonify({"accounts": list_accounts()})
+
+
+@app.post("/api/accounts")
+def create_account_api():
+    data = request.get_json(silent=True) or {}
+
+    required_fields = [
+        "account_name",
+        "password",
+        "email",
+        "address_line1",
+        "city",
+        "state",
+        "postal_code",
+        "food_genre",
+    ]
+    missing_fields = [field for field in required_fields if not (data.get(field) or "").strip()]
+
+    if missing_fields:
+        return json_error(f"Missing required fields: {', '.join(missing_fields)}", 400)
+
+    try:
+        account_id = create_account(
+            account_name=data["account_name"].strip(),
+            password=data["password"],
+            email=data["email"].strip(),
+            address_line1=data["address_line1"].strip(),
+            address_line2=(data.get("address_line2") or "").strip() or None,
+            city=data["city"].strip(),
+            state=data["state"].strip(),
+            postal_code=data["postal_code"].strip(),
+            food_genre=data["food_genre"].strip(),
+        )
+    except Exception as exc:
+        return json_error(str(exc), 400)
+
+    created_account = next(
+        (account for account in list_accounts() if account["id"] == account_id),
+        None,
+    )
+    return jsonify(
+        {
+            "message": "Account created successfully.",
+            "account": created_account,
+        }
+    ), 201
+
+
+@app.delete("/api/accounts/<int:account_id>")
+def delete_account_api(account_id: int):
+    try:
+        deleted = delete_account(account_id)
+    except Exception as exc:
+        return json_error(str(exc), 400)
+
+    if not deleted:
+        return json_error("Account not found.", 404)
+
+    return jsonify({"message": "Account deleted successfully."})
+
+
+@app.get("/api/dashboard")
+def dashboard_api():
+    return jsonify(
+        {
+            "accounts": list_accounts(),
+            "pending_orders": list_pending_orders(),
+        }
+    )
 
 
 @app.get("/accounts/new")
