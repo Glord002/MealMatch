@@ -17,11 +17,17 @@ or defaults to:
 import os
 import secrets
 import hashlib
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 import psycopg
 from psycopg.rows import dict_row
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 # --- Connection ---
@@ -139,7 +145,7 @@ def verify_login(account_name: str, password: str) -> bool:
             return bool(row and row["ok"])
 
 
-def delete_account(account_id: int) -> None:
+def delete_account(account_id: int) -> bool:
     """
     Deletes the account. Because schema uses ON DELETE CASCADE,
     it will also delete that account’s donations + donation_items.
@@ -148,6 +154,7 @@ def delete_account(account_id: int) -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, {"id": account_id})
+            return cur.rowcount > 0
 
 
 def update_account(

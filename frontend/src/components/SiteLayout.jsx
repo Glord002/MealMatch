@@ -4,7 +4,9 @@ const navItems = [
   { label: 'Home', to: '/' },
   { label: 'About', to: '/about' },
   { label: 'Donate', to: '/donate' },
+  { label: 'Donate Now', to: '/donate-now' },
   { label: 'Find Food', to: '/find-food' },
+  { label: 'Volunteer', to: '/volunteer' },
   { label: 'Contact', to: '/contact' },
 ]
 
