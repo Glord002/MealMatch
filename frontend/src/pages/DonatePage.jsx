@@ -1,4 +1,11 @@
 import { useEffect, useState } from 'react'
+import {
+  createAccount,
+  deleteAccount,
+  fetchAccounts,
+  fetchPendingOrders,
+  readConnectionMessage,
+} from '../lib/supabaseRest'
 
 const emptyForm = {
   account_name: '',
@@ -12,16 +19,6 @@ const emptyForm = {
   food_genre: '',
 }
 
-async function readApiResponse(response) {
-  const payload = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    throw new Error(payload.error || 'Request failed.')
-  }
-
-  return payload
-}
-
 function formatDate(value) {
   if (!value) {
     return 'Unknown'
@@ -33,6 +30,14 @@ function formatDate(value) {
   }).format(new Date(value))
 }
 
+function formatStatus(value) {
+  if (!value) {
+    return 'Unassigned'
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1)
+}
+
 function DonatePage() {
   const [formData, setFormData] = useState(emptyForm)
   const [accounts, setAccounts] = useState([])
@@ -42,15 +47,20 @@ function DonatePage() {
   const [deletingId, setDeletingId] = useState(null)
   const [error, setError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [connectionMessage] = useState(readConnectionMessage())
+  const isConfigured = !connectionMessage
 
   async function loadDashboard() {
     setIsLoading(true)
     setError('')
 
     try {
-      const payload = await readApiResponse(await fetch('/api/dashboard'))
-      setAccounts(payload.accounts || [])
-      setPendingOrders(payload.pending_orders || [])
+      const [accountsResult, pendingOrdersResult] = await Promise.all([
+        fetchAccounts(),
+        fetchPendingOrders(),
+      ])
+      setAccounts(accountsResult || [])
+      setPendingOrders(pendingOrdersResult || [])
     } catch (fetchError) {
       setError(fetchError.message)
     } finally {
@@ -77,17 +87,8 @@ function DonatePage() {
     setSuccessMessage('')
 
     try {
-      const payload = await readApiResponse(
-        await fetch('/api/accounts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(formData),
-        }),
-      )
-
-      setSuccessMessage(payload.message || 'Account created successfully.')
+      await createAccount(formData)
+      setSuccessMessage('Account created successfully.')
       setFormData(emptyForm)
       await loadDashboard()
     } catch (submitError) {
@@ -111,13 +112,8 @@ function DonatePage() {
     setSuccessMessage('')
 
     try {
-      const payload = await readApiResponse(
-        await fetch(`/api/accounts/${account.id}`, {
-          method: 'DELETE',
-        }),
-      )
-
-      setSuccessMessage(payload.message || 'Account deleted successfully.')
+      await deleteAccount(account.id)
+      setSuccessMessage('Account deleted successfully.')
       await loadDashboard()
     } catch (deleteError) {
       setError(deleteError.message)
@@ -132,9 +128,9 @@ function DonatePage() {
         <p className="eyebrow">Database Portal</p>
         <h1>Connect MealMatch to live donor records instead of demo-only content.</h1>
         <p className="hero-text">
-          This page now reads real database information from the Flask backend,
-          lets you add new donor accounts, and removes records directly from the
-          website.
+          This page now connects straight to Supabase from the frontend, so the
+          live donor records can load, create, and delete without a separate
+          Flask server running behind the site.
         </p>
       </section>
 
@@ -153,9 +149,9 @@ function DonatePage() {
 
         <article className="surface-card metric-card">
           <p className="eyebrow">Connection</p>
-          <h3>{isLoading ? 'Syncing' : 'Live'}</h3>
+          <h3>{connectionMessage ? 'Setup' : isLoading ? 'Syncing' : 'Live'}</h3>
           <p>
-            Frontend requests are routed through Vite to the Flask database API.
+            {connectionMessage || 'Frontend requests are going directly to the Supabase REST API.'}
           </p>
         </article>
       </section>
@@ -276,7 +272,11 @@ function DonatePage() {
             </label>
           </div>
 
-          <button className="button button-primary" type="submit" disabled={isSaving}>
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={isSaving || !isConfigured}
+          >
             {isSaving ? 'Saving Account...' : 'Create Account'}
           </button>
         </form>
@@ -306,7 +306,7 @@ function DonatePage() {
                       className="button button-secondary button-small"
                       type="button"
                       onClick={() => handleDelete(account)}
-                      disabled={deletingId === account.id}
+                      disabled={deletingId === account.id || !isConfigured}
                     >
                       {deletingId === account.id ? 'Deleting...' : 'Delete'}
                     </button>
@@ -330,39 +330,69 @@ function DonatePage() {
       </section>
 
       <section className="content-section">
-        <div className="surface-card">
-          <div className="section-heading section-heading-tight">
-            <p className="eyebrow">Pending Donations</p>
-            <h2>Additional database information already available</h2>
-            <p>
-              This list comes from the `donations` table joined with account
-              addresses, so the frontend is also displaying related data beyond
-              the accounts table.
-            </p>
+        <div className="surface-card pending-donations-panel">
+          <div className="section-heading section-heading-tight pending-donations-header">
+            <div>
+              <p className="eyebrow">Pickup Queue</p>
+              <h2>Pending donations ready for operations review</h2>
+              <p>
+                Live donation requests are grouped into a cleaner dispatch view
+                so coordinators can quickly review location, timing, and pickup
+                notes before routing volunteers.
+              </p>
+            </div>
+            <div className="queue-summary">
+              <span className="queue-summary-label">Open pickups</span>
+              <strong>{pendingOrders.length}</strong>
+            </div>
           </div>
 
-          <div className="database-list">
+          <div className="database-list pending-donations-list">
             {isLoading ? (
-              <p>Loading pending orders...</p>
+              <div className="pending-empty-state">
+                <strong>Loading pickup queue...</strong>
+                <p>Pulling the latest donation requests from Supabase.</p>
+              </div>
             ) : pendingOrders.length === 0 ? (
-              <p>No pending donation pickups are in the database right now.</p>
+              <div className="pending-empty-state">
+                <strong>No pending pickups right now.</strong>
+                <p>
+                  New donation requests will appear here once a donor submits a
+                  record into the live database.
+                </p>
+              </div>
             ) : (
               pendingOrders.map((order) => (
-                <article className="database-item" key={order.donation_id}>
-                  <div className="database-item-header">
-                    <strong>{order.account_name}</strong>
-                    <span className="status-pill">{order.status}</span>
+                <article className="database-item pending-donation-card" key={order.donation_id}>
+                  <div className="database-item-header pending-donation-topline">
+                    <div>
+                      <p className="pending-donation-label">Donor partner</p>
+                      <strong>{order.account_name}</strong>
+                    </div>
+                    <span className="status-pill">{formatStatus(order.status)}</span>
                   </div>
-                  <p>
-                    {order.address_line1}
-                    {order.address_line2 ? `, ${order.address_line2}` : ''}
-                  </p>
-                  <p>
-                    {order.city}, {order.state} {order.postal_code}
-                  </p>
-                  <div className="database-item-meta">
-                    <span>{order.notes || 'No notes attached'}</span>
-                    <span>{formatDate(order.donated_at)}</span>
+
+                  <div className="pending-donation-grid">
+                    <div className="pending-donation-block">
+                      <span className="pending-donation-label">Pickup address</span>
+                      <p>
+                        {order.address_line1}
+                        {order.address_line2 ? `, ${order.address_line2}` : ''}
+                      </p>
+                      <p>
+                        {order.city}, {order.state} {order.postal_code}
+                      </p>
+                    </div>
+
+                    <div className="pending-donation-block">
+                      <span className="pending-donation-label">Request notes</span>
+                      <p>{order.notes || 'No special handling notes were provided.'}</p>
+                    </div>
+                  </div>
+
+                  <div className="database-item-meta pending-donation-meta">
+                    <span>Donation ID #{order.donation_id}</span>
+                    <span>Submitted {formatDate(order.donated_at)}</span>
                   </div>
                 </article>
               ))

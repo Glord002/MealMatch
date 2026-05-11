@@ -17,11 +17,17 @@ or defaults to:
 import os
 import secrets
 import hashlib
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 import psycopg
 from psycopg.rows import dict_row
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 # --- Connection ---

@@ -10,12 +10,20 @@ Status values:
 """
 
 import os
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import psycopg
 from psycopg.rows import dict_row
+from dotenv import load_dotenv
 
-from database.accounts import verify_login, get_account_id_by_name
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+
+try:
+    from .accounts import verify_login, get_account_id_by_name
+except ImportError:
+    from accounts import verify_login, get_account_id_by_name
 
 DEFAULT_DSN = os.getenv("DATABASE_URL", "postgresql://localhost:5432/food_donations")
 

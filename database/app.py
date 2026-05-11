@@ -1,8 +1,12 @@
+from pathlib import Path
+
 from flask import Flask, jsonify, render_template, request, redirect, url_for, flash
 from werkzeug.exceptions import BadRequest
 
 from dotenv import load_dotenv
-load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 
 try:
@@ -62,7 +66,10 @@ def list_accounts_page():
 
 @app.get("/api/accounts")
 def list_accounts_api():
-    return jsonify({"accounts": list_accounts()})
+    try:
+        return jsonify({"accounts": list_accounts()})
+    except Exception as exc:
+        return json_error(str(exc), 500)
 
 
 @app.post("/api/accounts")
@@ -126,12 +133,15 @@ def delete_account_api(account_id: int):
 
 @app.get("/api/dashboard")
 def dashboard_api():
-    return jsonify(
-        {
-            "accounts": list_accounts(),
-            "pending_orders": list_pending_orders(),
-        }
-    )
+    try:
+        return jsonify(
+            {
+                "accounts": list_accounts(),
+                "pending_orders": list_pending_orders(),
+            }
+        )
+    except Exception as exc:
+        return json_error(str(exc), 500)
 
 
 @app.get("/accounts/new")
